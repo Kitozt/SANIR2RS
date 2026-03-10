@@ -1,2 +1,2 @@
 # SANIR2RS
-not sure what to add here yet
+Socially Aware Navigation Implementation in ROS 2 and Robot Simulations
