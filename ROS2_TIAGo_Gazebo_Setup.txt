@@ -1,0 +1,321 @@
+ROS2 Ignition Gazebo Env Setup for Windows 
+
+----------------------------------------------------
+Install Ubuntu Jammy 22.04
+
+# open command prompt
+
+# on windows subsystem Linux install ubuntu
+$ wsl --install -d Ubuntu-22.04
+
+# follow username and password prompts
+
+# verify installation
+$ wsl --list --verbose
+
+----------------------------------------------------
+Install ROS2 Humble Hawksbill - https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html
+
+# make sure locale supports UTF-8
+$ locale
+
+# add ROS2 apt repo to system
+$ sudo apt install software-properties-common
+$ sudo add-apt-repository universe
+
+# install ros2-apt-source package to configure ROS2 repos for system
+$ sudo apt update && sudo apt install curl -y
+
+$ export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}')
+
+$ curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${VERSION_CODENAME})_all.deb" # If using Ubuntu derivates use $UBUNTU_CODENAME
+
+$ sudo dpkg -i /tmp/ros2-apt-source.deb
+
+# install ROS2 packages
+$ sudo apt update
+$ sudo apt upgrade
+
+# install ros
+$ sudo apt install ros-humble-desktop
+
+OR
+
+$ sudo apt install ros-humble-ros-base
+f
+# then install dev tools
+$ sudo apt install ros-dev-tools
+
+----------------------------------------------------
+Install Ignition Gazebo Fortress on Ubuntu - https://gazebosim.org/docs/fortress/install_ubuntu/
+
+# install necessary tools
+$ sudo apt-get update
+$ sudo apt-get install lsb-release gnupg
+
+# install Ignition Fortress
+$ sudo curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+
+$ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
+
+$ sudo apt-get update
+
+$ sudo apt-get install ignition-fortress
+
+----------------------------------------------------
+Install ROS2 - Ignition Fortress Bridge
+
+$ sudo apt update
+
+$ sudo apt install ros-humble-ros-ign-bridge 
+
+----------------------------------------------------
+PAL Tiago Test - https://github.com/pal-robotics/tiago_simulation
+
+# create workspace and src folder
+$ mkdir -p ~/tiago_public_ws/src
+$ cd ~/tiago_public_ws
+
+# import TIAGo repos for humble
+$ vcs import --input https://raw.githubusercontent.com/pal-robotics/tiago_tutorials/humble-devel/tiago_public.repos src
+
+# update deps
+$ sudo rosdep init
+$ rosdep update
+
+# install required deps from source 
+$ rosdep install --from-paths src -y --ignore-src
+
+# source ROS2 Humble
+$ source /opt/ros/humble/setup.bash
+
+# build workspace
+$ colcon build --symlink-install
+
+# source workspace setup
+$ source ~/tiago_public_ws/install/setup.bash
+
+# test simulation on default world
+$ ros2 launch tiago_gazebo tiago_gazebo.launch.py is_public_sim:=True arm_type:=no-arm
+
+----------------------------------------------------
+Create Custom ROS2 Package
+
+$ cd ~/tiago_public_ws/src
+
+# create package (custom_tiago_sim)
+$ ros2 pkg create --build-type ament_python custom_tiago_sim --dependencies rclpy launch launch_ros
+
+$ cd custom_tiago_sim
+
+----------------------------------------------------
+Add Custom World to package
+
+# navigate to pal gazebo worlds
+$ cd ~/tiago_public_ws/src/pal_gazebo_worlds
+
+# create or move custom gazebo world into this folder
+# THIS MUST BE A .WORLD FILE (I think renaming a .sdf to .world works)
+# I called mine test_world.world
+
+# if in WSL, use mount to access windows files and copy custom world into worlds
+$ cp /mnt/c/Users/USER/Downloads/test_world.sdf tiago_public_ws/src/pal_gazebo_worlds
+
+----------------------------------------------------
+Make Custom Launch File (custom world, tiago, and teleoperation)
+
+# create launch folder
+$ cd ~/tiago_public_ws/src/custom_tiago_sim
+$ mkdir launch
+$ touch launch/launch_tiago_in_world.py
+
+# open launch in text editor
+vim launch/launch_tiago_in_world.py
+
+# paste this code
+from launch import LaunchDescription                            
+from launch.actions import IncludeLaunchDescription             
+from launch.launch_description_sources import PythonLaunchDescriptionSource                                                     
+from launch.substitutions import PathJoinSubstitution           
+from launch_ros.substitutions import FindPackageShare           
+from launch_ros.actions import Node                                                                                             
+import os     
+                  
+	def generate_launch_description():      
+	# set gazebo model path env variable                            
+	package_share_directory = FindPackageShare('tiago_gazebo').find('tiago_gazebo')                                             
+    	
+	# Set the environment variable using os.environ
+	existing_gazebo_path = os.environ.get('GAZEBO_MODEL_PATH', '')
+   	os.environ['GAZEBO_MODEL_PATH'] = existing_gazebo_path + ':' + package_share_directory + '/models'
+
+
+    	# pass name of the custom world (no extension)
+    	world_name = '~/worlds/test_world.sdf'
+
+    	# Launch tiago_gazebo's main simulation launch file
+    	tiago_sim = IncludeLaunchDescription(
+        	PythonLaunchDescriptionSource([
+            		PathJoinSubstitution([
+                		FindPackageShare('tiago_gazebo'),
+                		'launch',
+                		'tiago_gazebo.launch.py'
+            		])
+        	]),
+        	launch_arguments={
+            		'is_public_sim': 'True',
+            		'arm_type': 'no-arm',
+            		'world_name': world_name  # pass world name
+		}.items()
+    	)
+
+    	keyboard_teleop = Node(
+            package='teleop_twist_keyboard',
+            executable='teleop_twist_keyboard',
+            name='keyboard_teleop',
+            output='screen',
+            prefix='xterm -e', # (seprate terminal launch)
+            remappings=[('/cmd_vel', '/cmd_vel')]
+    )
+
+    return LaunchDescription([
+        tiago_sim,
+        keyboard_teleop
+    ])
+  
+# save and exit
+
+----------------------------------------------------
+Modify setup.py so ROS2 can find launch file in install space
+
+# setup.py should look like this
+from setuptools import find_packages, setup
+import os
+import glob
+
+package_name = 'custom_tiago_sim'
+
+setup(
+    name=package_name,
+    version='0.0.0',
+    packages=find_packages(exclude=['test']),
+    data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob.glob('launch/*.py')),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='user',
+    maintainer_email='user@todo.todo',
+    description='TODO: Package description',
+    license='TODO: License declaration',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+        ],
+    },
+)
+----------------------------------------------------
+Launch Custom World With TIAGo
+
+# rebuild workspace
+$ cd ~/tiago_public_ws
+$ colcon build --symlink-install
+$ source install/setup.bash
+
+$ ros2 launch tiago_gazebo tiago_gazebo.launch.py is_public_sim:=True world_name:=test_world [arm_type:=no-arm]
+
+----------------------------
+
+OTHER NOTES:
+
+GAZEBO
+
+IF GAZEBO ERRORS on startup w/ a bunch of seg faults, try to run this command:
+
+export LIBGL_ALWAYS_SOFTWARE=1
+
+ign gazebo
+
+---------------------------------------------------
+Kito's notes
+
+# for installation and uninstallation
+# tps://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html
+
+# if using windows subsystem for Linux (AKA WSL)
+# make sure wsl is updated through window's powershell
+
+# make sure ros2 is updated
+$ sudo apt update
+$ sudo apt upgrade
+
+# install base tools and dev tools
+$ sudo apt install ros-humble-ros-base
+$ sudo apt install ros-dev-tools
+
+# source ros2 everytime you open a new terminal when working in ros2
+$ source directory/file
+# example
+$ source /opt/ros/humble/setup.bash
+
+# you can also make it so that it automatically sources every time you open a new terminal
+$ echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+# To undo this, locate your system’s shell startup script and remove the appended source command.
+
+# how to run program
+$ ros2 run <package_name> <executable_name>
+# example
+$ ros2 run turtlesim turtlesim_node
+
+# command to check node list
+$ ros2 node list
+
+# add this at the end to change the name of the program's node or else it will be defaulted
+$ --ros-args --remap __node:=MY_NAME
+# example
+$ ros2 run turtlesim turtlesim_node --ros-args --remap __node:=my_turtle
+
+# or load a parameter files with this
+$ --ros-args ==params-file FILE_NAME
+# example
+$ ros2 run turtlesim turtlesim_node --ros-args --params-file turtlesim.yaml
+
+# use this to check what's connected to the nodes
+$ ros2 node info /name_of_node
+# example
+$ ros2 node info /my_turtle
+
+# run this for a visual display of what's connected to the nodes
+$ ros2 run rqt_graph rqt_graph
+
+# when using colcon move to the main directory you're testing/working on and run colcon build
+$ colcon build --symlink-install
+# use this to test the package - there are some errors you can ignore some times
+$ colcon test
+# then source the package, it will usually be this
+$ . install/setup.bash || source install/setup.bash
+
+# if you don't want to build a specific package place an empty file named COLCON_IGNORE inside of the directory
+
+# packages should be created in the src directory, never in the root folder
+
+---------------------------------------------------
+
+Kito's Tiago Notes
+
+# make sure to source ros2 when running ros commands
+$ source /opt/ros/humble/setup.bash
+
+# otherwise source your workspace setup
+$ source ~/workspace_name/install/setup.bash
+# example
+$ source ~/tiago_public_ws/install/setup.bash
+
+# ros command to manually control robot in simulation
+$ ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
+
+
