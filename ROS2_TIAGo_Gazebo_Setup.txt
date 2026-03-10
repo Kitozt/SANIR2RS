@@ -306,16 +306,9 @@ $ . install/setup.bash || source install/setup.bash
 
 Kito's Tiago Notes
 
-# make sure to source ros2 when running ros commands
-$ source /opt/ros/humble/setup.bash
-
-# otherwise source your workspace setup
-$ source ~/workspace_name/install/setup.bash
-# example
-$ source ~/tiago_public_ws/install/setup.bash
-
 # ros command to manually control robot in simulation
 $ ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
 
 
 
